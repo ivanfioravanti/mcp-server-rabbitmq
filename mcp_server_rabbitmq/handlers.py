@@ -6,16 +6,20 @@ from .connection import RabbitMQConnection
 
 def handle_enqueue(rabbitmq: RabbitMQConnection, queue: str, message: str):
     connection, channel = rabbitmq.get_channel()
-    channel.queue_declare(queue)
-    channel.basic_publish(exchange="", routing_key=queue, body=message)
-    connection.close()
+    try:
+        channel.queue_declare(queue)
+        channel.basic_publish(exchange="", routing_key=queue, body=message)
+    finally:
+        connection.close()
 
 
 def handle_fanout(rabbitmq: RabbitMQConnection, exchange: str, message: str):
     connection, channel = rabbitmq.get_channel()
-    channel.exchange_declare(exchange=exchange, exchange_type="fanout")
-    channel.basic_publish(exchange=exchange, routing_key="", body=message)
-    connection.close()
+    try:
+        channel.exchange_declare(exchange=exchange, exchange_type="fanout")
+        channel.basic_publish(exchange=exchange, routing_key="", body=message)
+    finally:
+        connection.close()
 
 
 def handle_list_queues(rabbitmq_admin: RabbitMQAdmin) -> List[str]:
@@ -66,9 +70,12 @@ def handle_get_messages(
             method_frame, header_frame, body = channel.basic_get(queue=queue, auto_ack=False)
             if method_frame is None:
                 break
-            messages.append(
-                {"body": body.decode() if body else "", "delivery_tag": method_frame.delivery_tag}
-            )
+            try:
+                decoded_body = body.decode("utf-8") if body else ""
+            except UnicodeDecodeError:
+                # Handle binary messages by representing them as hex string
+                decoded_body = body.hex() if body else ""
+            messages.append({"body": decoded_body, "delivery_tag": method_frame.delivery_tag})
             method_frames.append(method_frame)
         # After fetching, ack or nack (requeue) each message as per the flag
         for method_frame in method_frames:
